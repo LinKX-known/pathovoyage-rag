@@ -1,0 +1,33 @@
+{
+  "domain": "colorectal",
+  "note": "P0 语料策展规则。id_range 由结直肠/消化道词频的连续密集段定位后人工核对；regex 用于补充零散的病理学原理段落。Robbins 的消化道章节在 PDF 抽取中词边界大量丢失（噪声片段约 16%），因此只取强特征句，不作为主力语源。",
+  "window_chars": 600,
+  "min_chars": 40,
+  "sources": [
+    {
+      "file": "Surgery_Schwartz.jsonl",
+      "title": "Surgery_Schwartz",
+      "id_range": [8452, 8649],
+      "reason": "结直肠章节：息肉/腺瘤/腺癌、梗阻与 IBD 外科处理、T/N 分期、切缘与预后因素"
+    },
+    {
+      "file": "Pathoma_Husain.jsonl",
+      "title": "Pathoma_Husain",
+      "id_range": [243, 290],
+      "reason": "消化道病理章节：食管/胃/小肠/结肠，含结肠息肉、FAP、腺瘤-腺癌序列与结肠癌分型"
+    },
+    {
+      "file": "Pathology_Robbins.jsonl",
+      "title": "Pathology_Robbins",
+      "regex": "mucinous adenocarcinoma|signet ring cell|adenoma-carcinoma sequence|colorectal carcinoma",
+      "reason": "仅作补充：该书消化道正文词边界损坏，只保留强特征句"
+    },
+    {
+      "file": "curated_colorectal.jsonl",
+      "title": "Curated_CRC_Criteria",
+      "source": "curated",
+      "subdir": "corpus",
+      "reason": "人工整理的结直肠判据卡（亚型/分级/分期/切缘/LVI/PNI/出芽/MMR），待病理专家复核后定稿"
+    }
+  ]
+}

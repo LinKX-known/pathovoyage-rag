@@ -1,0 +1,20 @@
+{
+  "n_questions": 150,
+  "n_slides": 150,
+  "by_task": {
+    "Malignant carcinoma": 114,
+    "Benign tumor": 29,
+    "Inflammatory diseases": 7
+  },
+  "by_answer": {
+    "Malignant carcinoma": 114,
+    "Benign tumor": 29,
+    "Inflammatory diseases": 7
+  },
+  "by_disease": {
+    "": 150
+  },
+  "n_options": {
+    "3": 150
+  }
+}
