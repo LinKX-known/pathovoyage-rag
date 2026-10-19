@@ -116,16 +116,20 @@ class PathoR1Client:
         image: Image.Image,
         observation_task: str = "",
         tissue_context: str | None = None,
+        criteria: str | None = None,
     ) -> PathoR1Result:
-        """发送裁剪图像与观察任务，返回专科诊断及调用统计。"""
+        """发送裁剪图像与观察任务，返回专科诊断及调用统计。
+
+        criteria 非空时覆盖实例级判据——逐 crop 会按当前倍率注入更贴合的判据片段。
+        """
         buffer = BytesIO()
         image.convert("RGB").save(buffer, format="JPEG", quality=85)
         img_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
 
         task = observation_task or "(observe the field and answer the question)"
-        criteria = self.criteria or "(none; use general diagnostic standards)"
+        criteria_text = criteria or self.criteria or "(none; use general diagnostic standards)"
         prompt = _CONSULT_PROMPT.format(
-            question=self.question, criteria=criteria, observation_task=task
+            question=self.question, criteria=criteria_text, observation_task=task
         )
         context = tissue_context or self.tissue_context
         if context:

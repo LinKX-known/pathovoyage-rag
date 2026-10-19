@@ -301,6 +301,9 @@ async def plan_retrieval(question: str, *, evidence: object | None = None) -> Re
 
     evidence 非空时，检索到的教科书片段会作为术语参考注入提示词，
     让生成的检索维度更贴近病理学表述。
+
+    千问失败或返回空时，退回**确定性构造**（判据卡英文短语 → 术语表 → 最后兜底），
+    而不是所有问题共用一句写死的文本。
     """
     reference = _reference_snippet(evidence)
     try:
@@ -319,13 +322,35 @@ async def plan_retrieval(question: str, *, evidence: object | None = None) -> Re
             text = await _translate(provider, question, reference)
             dimensions = [RetrievalDimension(name="", text=text, weight=1.0)]
 
+        # 翻译返回空时 _translate 会给出 FALLBACK_QUERY：这种情况同样改用确定性维度
+        if len(dimensions) == 1 and dimensions[0].text.strip() == FALLBACK_QUERY:
+            dimensions = _deterministic_dimensions(question, evidence) or dimensions
+
         return RetrievalPlan(intent=intent, dimensions=dimensions)
     except Exception as e:
-        logger.warning("PLIP 检索规划失败，回退默认检索文本: %s", e)
+        logger.warning("PLIP 检索规划失败，改用确定性维度: %s", e)
         return RetrievalPlan(
             intent=INTENT_EXISTENCE,
-            dimensions=[RetrievalDimension(name="", text=FALLBACK_QUERY, weight=1.0)],
+            dimensions=_deterministic_dimensions(question, evidence)
+            or [RetrievalDimension(name="", text=FALLBACK_QUERY, weight=1.0)],
         )
+
+
+def _deterministic_dimensions(
+    question: str, evidence: object | None = None
+) -> list[RetrievalDimension]:
+    """用判据卡英文短语 / 术语表构造检索维度（不依赖任何 API）。"""
+    try:
+        from giant.knowledge.plip_query import build_dimensions
+
+        queries = build_dimensions(question, evidence)  # type: ignore[arg-type]
+    except Exception as e:  # 知识层异常不应影响预筛
+        logger.warning("确定性检索维度构造失败: %s", e)
+        return []
+    return [
+        RetrievalDimension(name=query.source, text=query.text, weight=query.weight)
+        for query in queries
+    ]
 
 
 async def plan_observation(question: str, *, evidence: object | None = None) -> ObservationPlan:

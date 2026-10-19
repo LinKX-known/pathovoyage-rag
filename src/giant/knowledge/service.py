@@ -47,6 +47,7 @@ class KnowledgeService:
         self._passages: list[Passage] | None = None
         self._index: BM25Index | None = None
         self._version: str = ""
+        self._cache: dict[tuple[str, str, int], EvidenceBundle] = {}
 
     # ------------------------------------------------------------------ 构造
 
@@ -106,9 +107,18 @@ class KnowledgeService:
         stage: Stage = "planning",
         k: int | None = None,
     ) -> EvidenceBundle:
-        """检索并打包为 EvidenceBundle；中文问题会先做术语展开。"""
+        """检索并打包为 EvidenceBundle；中文问题会先做术语展开。
+
+        相同 (query, stage, k) 的检索在进程内只算一次——预筛与规划阶段会各要一次
+        完全相同的证据，缓存既省时间也保证两边看到的是同一份结果。
+        """
         self._ensure_ready()
         assert self._index is not None
+
+        cache_key = (query, stage, k or self._top_k)
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
 
         if not query or not query.strip():
             return EvidenceBundle(query=query, stage=stage, corpus_version=self._version)
@@ -128,12 +138,14 @@ class KnowledgeService:
             threshold = best * self._relative_cutoff
             hits = [(passage, score) for passage, score in hits if score >= threshold]
 
-        return EvidenceBundle(
+        bundle = EvidenceBundle(
             query=expanded,
             stage=stage,
             passages=[passage for passage, _score in hits[: (k or self._top_k)]],
             corpus_version=self._version,
         )
+        self._cache[cache_key] = bundle
+        return bundle
 
     def search(self, query: str, *, k: int = 5) -> list[Passage]:
         """供 CLI 调试使用的裸检索。"""

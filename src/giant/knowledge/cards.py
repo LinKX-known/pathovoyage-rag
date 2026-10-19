@@ -111,3 +111,56 @@ def citation_check(answer: str, bundle: EvidenceBundle) -> CitationReport:
     return CitationReport(
         used=used, unused=unused, invalid=invalid, coverage=round(coverage, 3)
     )
+
+
+# 倍率档位对应的判据触发词（中英混排：策展判据卡是中文，但含英文术语）
+_BUCKET_HINTS: dict[str, tuple[str, ...]] = {
+    "low": ("结构", "architect", "生长模式", "growth pattern", "浸润方式", "infiltrat"),
+    "medium": ("腺", "gland", "间质", "stroma", "desmoplas", "促结缔", "前沿", "front"),
+    "high": ("核", "nuclear", "异型", "atypia", "分裂", "mitot", "胞质", "cytoplasm",
+             "染色质", "chromatin", "印戒", "signet"),
+}
+
+
+def criteria_slice(
+    bundle: EvidenceBundle | None,
+    bucket: str,
+    *,
+    max_chars: int = 220,
+) -> str:
+    """按倍率档位切一小段判据，供**逐 crop** 的专家会诊使用。
+
+    Patho-R1 的 max_tokens 只有 256，逐 crop 注入必须极短；
+    这里按「该倍率该看什么」挑最贴合的证据片段，而不是把整张判据卡灌进去。
+    """
+    if bundle is None or bundle.is_empty:
+        return ""
+
+    hints = _BUCKET_HINTS.get(bucket, ())
+    # 候选排序优先级：策展判据卡 + 命中档位触发词 > 卡内其他条目 > 教科书命中 > BM25 最高分。
+    # 判据卡是人工核对的诊断标准，做「该档位该看什么」的提示比教科书句子更贴切。
+    buckets: dict[tuple[bool, bool], list[str]] = {}
+    for passage in bundle.passages:
+        text = " ".join(passage.text.split())
+        lowered = text.lower()
+        hit = any(hint in lowered for hint in hints)
+        key = (passage.source == "curated", hit)
+        buckets.setdefault(key, []).append(text)
+
+    ordered: list[str] = []
+    for key in ((True, True), (True, False), (False, True), (False, False)):
+        for text in buckets.get(key, []):
+            if text not in ordered:
+                ordered.append(text)
+    if not ordered:
+        return ""
+
+    # 判据卡永远优先（它是人工核对的标准）；同组内命中该档位触发词的排前面。
+    # 「该倍率看什么」由随 crop 传入的 observation_task 负责，这里只给标准。
+    picked = ordered[:2]
+    if not picked:
+        return ""
+
+    budget = max(60, max_chars // max(len(picked), 1))
+    parts = [_clip(text, budget) for text in picked]
+    return "；".join(part for part in parts if part)[:max_chars]

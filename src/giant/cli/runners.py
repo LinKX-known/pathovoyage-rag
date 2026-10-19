@@ -116,6 +116,12 @@ def _run_giant_mode(
             relative_cutoff=settings.RAG_RELATIVE_CUTOFF,
         )
         logger.info("知识检索已启用", corpus=str(rag_corpus or settings.RAG_CORPUS_PATH))
+        if not prescreen and not patho_r1:
+            # 避免「开了 RAG 却什么都没发生」的静默空转
+            logger.warning(
+                "RAG 已开启但未开 --prescreen / --patho-r1：证据只会写入轨迹，"
+                "不会影响 PLIP 查询、观察判据与仲裁"
+            )
 
     candidate_regions = None
     candidate_centers = None
@@ -125,11 +131,24 @@ def _run_giant_mode(
         from giant.vision.plip import prescreen_candidates
 
         # 问题驱动的预筛：先用千问规划检索计划（意图分类 + 维度拆解），再按维度
-        # 召回候选框；规划失败则回退到默认的肿瘤/正常打分。
+        # 召回候选框；规划失败则用「判据卡短语 → 术语表 → 固定兜底」的确定性维度。
         planning_evidence = None
+        plip_source = "none"
         if knowledge is not None:
             try:
-                planning_evidence = knowledge.retrieve(question, stage="planning")
+                bundle = knowledge.retrieve(question, stage="planning")
+                from giant.knowledge.gate import apply as apply_gate
+
+                gated, decision = apply_gate(bundle, question)
+                if decision.allows_injection:
+                    planning_evidence = gated
+                    plip_source = "llm+evidence"
+                else:
+                    logger.info(
+                        "预筛阶段闸门拦截：不注入证据",
+                        relevance=decision.relevance,
+                        reason=decision.reasons[:1],
+                    )
             except Exception as e:  # 检索失败不阻断预筛
                 logger.warning("知识检索失败，预筛跳过 RAG 注入", error=str(e))
 
@@ -139,6 +158,7 @@ def _run_giant_mode(
             dimensions = [(d.text, d.weight) for d in plan.dimensions]
             plip_plan = {
                 "intent": plan.intent,
+                "source": plip_source if planning_evidence is not None else "llm",
                 "dimensions": [
                     {"name": d.name, "text": d.text, "weight": d.weight}
                     for d in plan.dimensions
@@ -149,8 +169,24 @@ def _run_giant_mode(
                 intent=plan.intent,
                 names=[d.name for d in plan.dimensions],
             )
-        except Exception as e:  # 规划失败不阻断预筛，回退默认打分
-            logger.warning("PLIP 检索规划失败，回退默认打分", error=str(e))
+        except Exception as e:  # 规划失败不阻断预筛，改用确定性维度
+            logger.warning("PLIP 检索规划失败，改用确定性维度", error=str(e))
+            try:
+                from giant.knowledge.plip_query import build_dimensions
+
+                fallback = build_dimensions(question, planning_evidence)
+                if fallback:
+                    dimensions = [(dim.text, dim.weight) for dim in fallback]
+                    plip_plan = {
+                        "intent": "fallback",
+                        "source": "deterministic",
+                        "dimensions": [
+                            {"name": dim.source, "text": dim.text, "weight": dim.weight}
+                            for dim in fallback
+                        ],
+                    }
+            except Exception as inner:  # 连确定性维度都失败时才走 PLIP 默认打分
+                logger.warning("确定性维度构造失败，回退默认打分", error=str(inner))
 
         candidate_regions, candidate_centers = prescreen_candidates(
             wsi_path, k=prescreen_k, dimensions=dimensions

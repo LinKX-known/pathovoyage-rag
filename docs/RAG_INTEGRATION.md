@@ -1,71 +1,109 @@
-﻿# Pathovoyage 脳 RAG 鎺ュ叆璁捐锛坴0.1锛?
-> 鐩爣锛氬湪涓嶇牬鍧忕幇鏈夊鑸富寰幆锛坄agent/runner.py`锛変笌涓変緵搴斿晢瀹㈡埛绔殑鍓嶆彁涓嬶紝涓鸿瘖鏂摼璺紩鍏?> **鍙绱€佸彲寮曠敤銆佸彲瀹¤** 鐨勭梾鐞嗙煡璇嗭紝鎻愬崌鍒ゆ嵁璐ㄩ噺涓庢渶缁堣瘖鏂殑鍙京鎶ゆ€с€?
+# Pathovoyage × RAG 接入设计（v0.1）
+
+> 目标：在不破坏现有导航主循环（`agent/runner.py`）与三供应商客户端的前提下，为诊断链路引入
+> **可检索、可引用、可审计** 的病理知识，提升判据质量与最终诊断的可辩护性。
+
 ---
 
 ## 0. TL;DR
 
-1. **鍙锛屼絾涓嶈鎶婁綘缁欑殑閭ｄ釜浠撳簱褰撳簱瑁呰繘鍘?*鈥斺€斿畠鍜屾湰椤圭洰鍦ㄤ緷璧栥€侀鍩熴€佽鍙瘉涓婇兘鏄啿绐佺殑銆?2. 浣犵粰鐨?`SNOWTEAM2023/MedRAG`锛圵WW'25锛夋槸 **鐥囩姸/EHR 鈫?鐤剧梾** 鐨勭煡璇嗗浘璋辫瀵?RAG 鐮旂┒鑴氭湰锛?   涓庡畠鍚屽悕鐨勮繕鏈変竴涓?**MedRAG Toolkit**锛圓CL'24 Findings / MIRAGE锛夛紝閭ｄ釜鎵嶆彁渚?   PubMed / StatPearls / Textbooks / Wikipedia 璇枡涓?4 绉嶆绱㈠櫒銆?3. 鎺ㄨ崘鎷嗘垚涓夊眰鐭ヨ瘑锛?*K-RAG锛堟寚鍗?鏁欑涔︽绱級+ KG-RAG锛堢粨鐩磋偁鐥呯悊鏈綋锛? C-RAG锛堢浉浼肩梾渚嬶級**銆?4. 绗竴鏈熷彧鍋?**K-RAG 鐨勮瘝娉曟绱?+ 2 涓帴鍏ョ偣**锛堣鍒掋€佷徊瑁侊級锛?鈥? 澶╁彲璺戦€氾紝榛樿鍏抽棴銆侀浂鍥炲綊銆?
+1. **可行，但不要把你给的那个仓库当库装进去**——它和本项目在依赖、领域、许可证上都是冲突的。
+2. 你给的 `SNOWTEAM2023/MedRAG`（WWW'25）是 **症状/EHR → 疾病** 的知识图谱诱导 RAG 研究脚本；
+   与它同名的还有一个 **MedRAG Toolkit**（ACL'24 Findings / MIRAGE），那个才提供
+   PubMed / StatPearls / Textbooks / Wikipedia 语料与 4 种检索器。
+3. 推荐拆成三层知识：**K-RAG（指南/教科书检索）+ KG-RAG（结直肠病理本体）+ C-RAG（相似病例）**。
+4. 第一期只做 **K-RAG 的词法检索 + 2 个接入点**（规划、仲裁），1–2 天可跑通，默认关闭、零回归。
+
 ---
 
-## 1. 涓や釜 MedRAG 鐨勮鲸鏋?
-| | `SNOWTEAM2023/MedRAG`锛堜綘缁欑殑閾炬帴锛?| `Teddy-XiongGZ/MedRAG` Toolkit |
+## 1. 两个 MedRAG 的辨析
+
+| | `SNOWTEAM2023/MedRAG`（你给的链接） | `Teddy-XiongGZ/MedRAG` Toolkit |
 |---|---|---|
-| 璁烘枃 | WWW'25 *KG-Elicited Reasoning for Healthcare Copilot* | ACL'24 Findings *Benchmarking RAG for Medicine* |
-| 杈撳叆 | 鎮ｈ€呬富璇?鐥囩姸/娲诲姩鍙楅檺锛圖DXPlus 鍚堟垚 EHR锛?| 鍖诲鑰冮銆佷复搴婇棶棰?|
-| 妫€绱㈠璞?| **鐩镐技鐥呬緥**锛圗HR embedding锛? 鐤剧梾-琛ㄧ幇 **鐭ヨ瘑鍥捐氨** | **鏂囩尞鐗囨**锛圥ubMed/StatPearls/Textbooks/Wikipedia锛?|
-| 妫€绱㈠櫒 | 鍚戦噺鐩镐技 + KG 閭诲眳 | BM25 / Contriever / SPECTER / MedCPT |
-| 杈撳嚭 | 閴村埆璇婃柇 + 娌荤枟寤鸿 + **杩介棶闂** | 甯?snippet 鍑哄鐨勭瓟妗?|
-| 浠ｇ爜褰㈡€?| 鐮旂┒鑴氭湰锛坄main.py`銆乣KG_Retrieve.py`锛夛紝鏃犲寘缁撴瀯 | 鍙鐢ㄧ殑 `MedRAG` 绫?|
-| 璁稿彲 | **CC BY-NC 4.0锛堢鍟嗙敤锛?* | 浠ｇ爜寮€婧愶紱璇枡鍚勮嚜璁稿彲锛圫tatPearls 涓?CC BY-NC-ND锛?|
-| 瀵规湰椤圭洰浠峰€?| **鎺ㄧ悊鑼冨紡**锛欿G 鎵╁睍 + 閴村埆瀵圭収 + 杩介棶 | **璇枡涓庢绱㈠櫒** |
+| 论文 | WWW'25 *KG-Elicited Reasoning for Healthcare Copilot* | ACL'24 Findings *Benchmarking RAG for Medicine* |
+| 输入 | 患者主诉/症状/活动受限（DDXPlus 合成 EHR） | 医学考题、临床问题 |
+| 检索对象 | **相似病例**（EHR embedding）+ 疾病-表现 **知识图谱** | **文献片段**（PubMed/StatPearls/Textbooks/Wikipedia） |
+| 检索器 | 向量相似 + KG 邻居 | BM25 / Contriever / SPECTER / MedCPT |
+| 输出 | 鉴别诊断 + 治疗建议 + **追问问题** | 带 snippet 出处的答案 |
+| 代码形态 | 研究脚本（`main.py`、`KG_Retrieve.py`），无包结构 | 可复用的 `MedRAG` 类 |
+| 许可 | **CC BY-NC 4.0（禁商用）** | 代码开源；语料各自许可（StatPearls 为 CC BY-NC-ND） |
+| 对本项目价值 | **推理范式**：KG 扩展 + 鉴别对照 + 追问 | **语料与检索器** |
 
-缁撹锛?*鑼冨紡鍊?SNOWTEAM锛岃鏂?妫€绱㈠櫒鍙傝€?Toolkit锛岃惤鍦颁唬鐮佽嚜宸卞啓銆?*
+结论：**范式借 SNOWTEAM，语料/检索器参考 Toolkit，落地代码自己写。**
 
 ---
 
-## 2. 涓轰粈涔堜笉鑳界洿鎺ユ妸 SNOWTEAM 鐨勪粨搴撹杩涙潵
+## 2. 为什么不能直接把 SNOWTEAM 的仓库装进来
 
-| 鍐茬獊椤?| 瀹冪殑瑕佹眰 | 鏈」鐩姹?| 鍚庢灉 |
+| 冲突项 | 它的要求 | 本项目要求 | 后果 |
 |---|---|---|---|
-| torch | `2.4.1`锛堥粯璁?cu121 杞瓙锛?| `>=2.7`锛坈u128锛孯TX 50 绯?sm_120 蹇呴渶锛?| 瑁呬笂鍗抽檷绾э紝PLIP 璺戜笉鍔?|
-| numpy | `1.26.4` | `>=2.2.6,<2.4` | 鍐茬獊锛宲ip 瑙ｄ笉鍑哄彲琛岃В |
-| transformers | `4.45.1` | `>=4.46` | 涓?PLIP 鍔犺浇璺緞鍙兘涓嶅吋瀹?|
-| faiss | `faiss-cpu 1.8.0` | 鏈紩鍏?| 棰濆閲嶄緷璧栵紝鍙负 1 涓绱㈠櫒涓嶅€煎緱 |
-| 棰嗗煙 | DDXPlus 51 涓垵绾ц瘖鏂?+ 鎱㈢棝 EHR | 缁撶洿鑲犵檶 **褰㈡€佸浜氬瀷 / 鍒嗙骇 / 鍒嗘湡** | 瀹冪殑 KG 鑺傜偣瀵规垜浠棤鎰忎箟 |
-| 褰㈡€?| 鑴氭湰 + 鍏ㄥ眬 `authentication.py` 鍗犱綅 key + `config.py` | 鍖呭寲 `src/giant`锛岄厤缃蛋 pydantic-settings | 鏃犳硶 import 澶嶇敤 |
-| 璁稿彲 | CC BY-NC 4.0 | 骞冲彴鍖栧ぇ姒傜巼鍟嗙敤 | **娉曞緥椋庨櫓锛屽繀椤荤粫寮€** |
+| torch | `2.4.1`（默认 cu121 轮子） | `>=2.7`（cu128，RTX 50 系 sm_120 必需） | 装上即降级，PLIP 跑不动 |
+| numpy | `1.26.4` | `>=2.2.6,<2.4` | 冲突，pip 解不出可行解 |
+| transformers | `4.45.1` | `>=4.46` | 与 PLIP 加载路径可能不兼容 |
+| faiss | `faiss-cpu 1.8.0` | 未引入 | 额外重依赖，只为 1 个检索器不值得 |
+| 领域 | DDXPlus 51 个初级诊断 + 慢痛 EHR | 结直肠癌 **形态学亚型 / 分级 / 分期** | 它的 KG 节点对我们无意义 |
+| 形态 | 脚本 + 全局 `authentication.py` 占位 key + `config.py` | 包化 `src/giant`，配置走 pydantic-settings | 无法 import 复用 |
+| 许可 | CC BY-NC 4.0 | 平台化大概率商用 | **法律风险，必须绕开** |
 
-**鍙鍋氭硶**锛氭妸瀹冪殑 4 涓€屾€濊矾銆嶉噸鍐欐垚鎴戜滑鐨勬ā鍧楋紙鎬濊矾涓嶅彈鐗堟潈淇濇姢锛屼唬鐮佷笌鎻愮ず璇嶆枃鏈噸鏂版挵鍐欙級銆?
+**可行做法**：把它的 4 个「思路」重写成我们的模块（思路不受版权保护，代码与提示词文本重新撰写）。
+
 ---
 
-## 3. 鍙€熼壌鐨勫洓涓ā寮?
-1. **鍒嗗眰鑱氬悎寤哄浘**锛歚Level1 澶х被 鈫?Level2 浜氱被 鈫?Level3 鍏蜂綋璇婃柇`锛屾瘡涓妭鐐规寕銆岃〃鐜?鍒ゆ嵁銆嶆弿杩般€?   鏄犲皠鍒扮梾鐞嗭細`缁撶洿鑲犵檶 鈫?鑵虹檶/榛忔恫鑵虹檶/鍗版垝缁嗚優鐧?楂撴牱鐧屸€?鈫?WHO 鍏蜂綋浜氬瀷`锛岃妭鐐规寕闀滀笅鍒ゆ嵁銆?2. **KG 璇卞鎺ㄧ悊**锛氭绱㈠懡涓妭鐐瑰悗锛屾部鍥炬墿灞曞埌**鍏勫紵鑺傜偣**锛屾樉寮忕敓鎴愩€屽繀椤讳笌涔嬪尯鍒嗙殑 N 涓瘖鏂?+ 鍚勮嚜鍏抽敭鐗瑰緛銆嶃€?   杩欐鏄梾鐞嗛壌鍒瘖鏂殑褰㈡€侊紙榛忔恫鑵虹檶 vs 榛忔恫婀?vs 鍗版垝缁嗚優锛夈€?3. **閴村埆宸紓澧炲己锛坉iagnostic difference锛?*锛氭妸鏄撴贩瀵瑰仛鎴愭垚瀵规潯鐩杩涙彁绀鸿瘝锛屾瘮娉涙硾鐨勩€岃瘖鏂爣鍑嗐€嶆湁鏁堛€?4. **杩介棶鐢熸垚锛坒ollow-up questions锛?*锛氫俊鎭笉瓒虫椂鍏堥棶 2鈥? 涓緞娓呴棶棰橈紱骞冲彴渚у彲鍙樻垚銆屽緟琛ュ厖涓村簥淇℃伅銆嶆竻鍗曘€?
+## 3. 可借鉴的四个模式
+
+1. **分层聚合建图**：`Level1 大类 ← Level2 亚类 ← Level3 具体诊断`，每个节点挂「表现/判据」描述。
+   映射到病理：`结直肠癌 ← 腺癌/黏液腺癌/印戒细胞癌/髓样癌… ← WHO 具体亚型`，节点挂镜下判据。
+2. **KG 诱导推理**：检索命中节点后，沿图扩展到**兄弟节点**，显式生成「必须与之区分的 N 个诊断 + 各自关键特征」。
+   这正是病理鉴别诊断的形态（黏液腺癌 vs 黏液湖 vs 印戒细胞）。
+3. **鉴别差异增强（diagnostic difference）**：把易混对做成成对条目塞进提示词，比泛泛的「诊断标准」有效。
+4. **追问生成（follow-up questions）**：信息不足时先问 2–3 个澄清问题；平台侧可变成「待补充临床信息」清单。
+
 ---
 
-## 4. 鐩爣鏋舵瀯
+## 4. 目标架构
 
 ```
-                      鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ KnowledgeService锛堟噿鍔犺浇銆佸彲娉ㄥ叆锛?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? User question 鈹€鈹€鈹€鈹€鈹€鈹€鈻垛攤 K-RAG  鎸囧崡/鏁欑涔︾墖娈? BM25 + MedCPT dense 鈫?RRF 铻嶅悎          鈹?                      鈹?KG-RAG 缁撶洿鑲犵梾鐞嗘湰浣?  鑺傜偣鍛戒腑 鈫?閭诲眳鎵╁睍 鈫?閴村埆鐐?            鈹傗攢鈹€鈹? Historical cases 鈹€鈹€鈹€鈻垛攤 C-RAG  鐩镐技鐥呬緥/杞ㄨ抗    PLIP 鎴栧垏鐗?embedding + 缁撴瀯鍖栬繃婊?       鈹? 鈹?                      鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?                                                                                          鈻?                                                                    EvidenceBundle锛堝甫 id/鏉ユ簮/鍒嗘暟锛?                                                                                          鈹?        鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?        鈻?                              鈻?                            鈻?  鈶?瑙勫垝闃舵                     鈶?浼氳瘖闃舵                    鈶?浠茶闃舵
-  plan_retrieval /             姣忎釜 crop 鐨?Patho-R1          arbitrate_patho_r1
-  plan_observation             銆屽垽鎹崱銆嶏紙鈮?50 璇嶏級          銆屾寚鍗楄瘉鎹€嶅尯鍧?+ 寮曠敤鏍￠獙
-        鈹?                              鈹?                            鈹?        鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹粹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?                                        鈻?                         Trajectory.rag_evidence[] + Turn.evidence_ids[]
-                                        鈻?                            鏈€缁堣瘖鏂紙鍙拷婧埌鍏蜂綋鎸囧崡鏉℃枃锛?```
+                      ┌─────────────── KnowledgeService（懒加载、可注入） ───────────────┐
+ User question ──────▶│ K-RAG  指南/教科书片段  BM25 + MedCPT dense → RRF 融合          │
+                      │ KG-RAG 结直肠病理本体   节点命中 → 邻居扩展 → 鉴别点             │──┐
+ Historical cases ───▶│ C-RAG  相似病例/轨迹    PLIP 或切片 embedding + 结构化过滤        │  │
+                      └──────────────────────────────────────────────────────────────────┘  │
+                                                                                          ▼
+                                                                    EvidenceBundle（带 id/来源/分数）
+                                                                                          │
+        ┌───────────────────────────────┬─────────────────────────────┬───────────────────┘
+        ▼                               ▼                             ▼
+  ① 规划阶段                     ② 会诊阶段                    ③ 仲裁阶段
+  plan_retrieval /             每个 crop 的 Patho-R1          arbitrate_patho_r1
+  plan_observation             「判据卡」（≤150 词）          「指南证据」区块 + 引用校验
+        │                               │                             │
+        └───────────────────────────────┴─────────────────────────────┘
+                                        ▼
+                         Trajectory.rag_evidence[] + Turn.evidence_ids[]
+                                        ▼
+                            最终诊断（可追溯到具体指南条文）
+```
 
-### 4.1 浜斾釜鎺ュ叆鐐癸紙鏂囦欢绾э級
+### 4.1 五个接入点（文件级）
 
-| # | 浣嶇疆 | 鐜扮姸 | 鎺ュ叆鍚?|
+| # | 位置 | 现状 | 接入后 |
 |---|---|---|---|
-| 鈶?| `llm/plip_planner.py:270 plan_retrieval` | 绾?LLM 鎶婇棶棰樼炕鎴愭绱㈡枃鏈紱缁村害鏉冮噸鍑粡楠?| 鎰忓浘鍒嗙被鍚庡厛妫€绱㈣闂鐨勭梾鐞嗗垽鎹紝鐢?evidence 鐗囨绾︽潫鐢熸垚鐨勬绱㈢淮搴︼紙鏈鏇存帴杩戠梾鐞嗚涔夛紝PLIP 鍙洖鏇村噯锛?|
-| 鈶?| `llm/plip_planner.py:297 plan_observation` | `criteria` 鐢?Qwen 鍑┖鐢熸垚锛屾崲棰樺嵆婕?| `criteria` 鏉ヨ嚜鎸囧崡 evidence锛宍ObservationPlan` 鏂板 `evidence: list[Evidence]`锛堥粯璁ょ┖锛屽悜鍚庡吋瀹癸級 |
-| 鈶?| `llm/patho_r1_client.py:20 _CONSULT_PROMPT`锛坈riteria 娉ㄥ叆鍦?:127锛?| 姣忎釜 crop 甯︿竴浠借嚜閫犲垽鎹?| 鏀逛负**鍒ゆ嵁鍗?*锛?鈥? 鏉℃寚鍗楄鐐?+ 2 鏉￠壌鍒偣 + 褰撳墠鍊嶇巼浠诲姟锛汦vidence id 闅?`Turn` 钀藉簱 |
-| 鈶?| `agent/runner.py:1224 _arbitrate_patho_r1` 鈫?`plip_planner.py:318 arbitrate_patho_r1` | 浠茶鑰呭彧鐪嬩笓瀹舵枃瀛?| 澧炲姞 `# 鎸囧崡璇佹嵁` 鍖哄潡锛涜姹傛瘡鏉＄粨璁烘爣娉?`[E1]`锛涜緭鍑哄悗鍋?*寮曠敤鏍￠獙**锛堟棤鍑哄鐨勬柇瑷€闄嶆潈/鍓旈櫎锛?|
-| 鈶?| `agent/trajectory.py:66鈥?7` + `cli/main.py:57 run` | 杞ㄨ抗鍙湁 plip_plan / patho_r1_plan / arbitration | 杞ㄨ抗鏂板 `rag_evidence`锛汣LI 鏂板 `--rag/--no-rag`銆乣--rag-k`銆乣--rag-mode`锛屽瓙鍛戒护 `giant knowledge build|status|search` |
+| ① | `llm/plip_planner.py:270 plan_retrieval` | 纯 LLM 把问题翻成检索文本；维度权重凭经验 | 意图分类后先检索该问题的病理判据，用 evidence 片段约束生成的检索维度（术语更接近病理语义，PLIP 召回更准） |
+| ② | `llm/plip_planner.py:297 plan_observation` | `criteria` 由 Qwen 凭空生成，换题即漂 | `criteria` 来自指南 evidence，`ObservationPlan` 新增 `evidence: list[Evidence]`（默认空，向后兼容） |
+| ③ | `llm/patho_r1_client.py:20 _CONSULT_PROMPT`（criteria 注入在 :127） | 每个 crop 带一份自造判据 | 改为**判据卡**：3–5 条指南要点 + 2 条鉴别点 + 当前倍率任务；Evidence id 随 `Turn` 落库 |
+| ④ | `agent/runner.py:1224 _arbitrate_patho_r1` → `plip_planner.py:318 arbitrate_patho_r1` | 仲裁者只看专家文字 | 增加 `# 指南证据` 区块；要求每条结论标注 `[E1]`；输出后做**引用校验**（无出处的断言降权/剔除） |
+| ⑤ | `agent/trajectory.py:66–77` + `cli/main.py:57 run` | 轨迹只有 plip_plan / patho_r1_plan / arbitration | 轨迹新增 `rag_evidence`；CLI 新增 `--rag/--no-rag`、`--rag-k`、`--rag-mode`，子命令 `giant knowledge build|status|search` |
 
-### 4.2 涓轰粈涔堜紭鍏?鈶犫憿鈶?鑰屼笉鏄厛鎺?鈶?
-- 鈶紙Patho-R1 鍒ゆ嵁锛夋槸**褰撳墠鏈€寮辩殑涓€鐜?*锛氫笓瀹舵ā鍨嬪緢鍚冦€屼綘璁╁畠鐪嬩粈涔堛€嶏紝鑰岀幇鍦ㄨ繖浠姐€屼粈涔堛€嶆槸鍙︿竴涓?LLM 缂栫殑銆?- 鈶ｏ紙浠茶锛夋槸鏈€缁堢瓟妗堢殑鍑哄彛锛屾帴璇佹嵁鏀剁泭鏈€澶т笖**涓€娆¤皟鐢?*锛屾垚鏈彲鎺с€?- 鈶★紙姣?crop 涓€娆′細璇婏級璋冪敤閲?= 姝ユ暟锛屾敞鍏ュ繀椤绘瀬搴﹀帇缂╋紙鈮?00 tokens锛夛紝鍚﹀垯寤惰繜/鎴愭湰绾挎€т笂娑ㄣ€?
+### 4.2 为什么优先 ①③④ 而不是先接 ②
+
+- ③（Patho-R1 判据）是**当前最弱的一环**：专家模型很吃「你让它看什么」，而现在这份「什么」是另一个 LLM 编的。
+- ④（仲裁）是最终答案的出口，接证据收益最大且**一次调用**，成本可控。
+- ②（每 crop 一次会诊）调用量 = 步数，注入必须极度压缩（≤200 tokens），否则延迟/成本线性上涨。
+
 ---
 
-## 5. 鏁版嵁缁撴瀯锛堟柊澧烇紝鍏ㄩ儴 frozen pydantic锛?
+## 5. 数据结构（新增，全部 frozen pydantic）
+
 ```python
 class Passage(BaseModel, frozen=True):
     id: str                      # "WHO-CRC-2019#3.2.1"
@@ -80,139 +118,181 @@ class EvidenceBundle(BaseModel, frozen=True):
     query: str
     stage: Literal["planning", "consult", "arbitration"]
     passages: list[Passage] = []
-    discriminators: list[str] = []   # KG 浜у嚭鐨勩€屽繀椤诲尯鍒嗐€嶆潯鐩?    corpus_version: str = ""
+    discriminators: list[str] = []   # KG 产出的「必须区分」条目
+    corpus_version: str = ""
 ```
 
-`Turn` 澧炲姞 `evidence_ids: list[str] = []`锛沗Trajectory` 澧炲姞 `rag_evidence: list[Passage] = []`銆?
+`Turn` 增加 `evidence_ids: list[str] = []`；`Trajectory` 增加 `rag_evidence: list[Passage] = []`。
+
 ---
 
-## 6. 妯″潡甯冨眬
+## 6. 模块布局
 
 ```
 src/giant/knowledge/
-  __init__.py      # KnowledgeService 闂ㄩ潰锛堟噿鍔犺浇锛宺unner 閫氳繃 AgentConfig 娉ㄥ叆锛?  schemas.py       # Passage / EvidenceBundle / KGNode
-  corpus.py        # build_index(): data/corpus/*.jsonl 鈫?鍒嗗潡 鈫?绱㈠紩钀界洏
+  __init__.py      # KnowledgeService 门面（懒加载，runner 通过 AgentConfig 注入）
+  schemas.py       # Passage / EvidenceBundle / KGNode
+  corpus.py        # build_index(): data/corpus/*.jsonl → 分块 → 索引落盘
   retriever.py     # BM25Retriever | DenseRetriever(MedCPT) | HybridRRF
-  kg.py            # ColorectalKG: data/kg/colorectal.yaml 鈫?涓夊厓缁?+ 閭诲眳鎵╁睍
-  cards.py         # criteria_card(bundle, bucket) -> str锛堝帇缂╁埌 token 棰勭畻鍐咃級
-  service.py       # retrieve_for_planning / _consult / _arbitration锛堝甫 diskcache锛?data/corpus/*.jsonl
+  kg.py            # ColorectalKG: data/kg/colorectal.yaml → 三元组 + 邻居扩展
+  cards.py         # criteria_card(bundle, bucket) -> str（压缩到 token 预算内）
+  service.py       # retrieve_for_planning / _consult / _arbitration（带 diskcache）
+data/corpus/*.jsonl
 data/kg/colorectal.yaml
 ```
 
-`pyproject.toml` 澧炲姞鍙€?extra锛堟部鐢ㄧ幇鏈?`plip` extra 鐨勫仛娉曪級锛?
+`pyproject.toml` 增加可选 extra（沿用现有 `plip` extra 的做法）：
+
 ```toml
 [project.optional-dependencies]
 rag = ["rank_bm25>=0.2.2", "jieba>=0.42.1"]
 ```
 
-dense 妫€绱㈠鐢ㄥ凡鏈夌殑 `torch`/`transformers`锛坄--extra plip` 宸插甫锛夛紝涓嶅紩鍏?faiss锛氳鏂欏彧鏈夊嚑鍗冩潯鏃讹紝
-numpy 鏆村姏鍐呯Н瓒冲锛坄np.argsort(-X @ q)`锛夛紝閬垮厤鏂伴噸渚濊禆銆?
+dense 检索复用已有的 `torch`/`transformers`（`--extra plip` 已带），不引入 faiss：语料只有几千条时，
+numpy 暴力内积足够（`np.argsort(-X @ q)`），避免新重依赖。
+
 ---
 
-## 7. 妫€绱㈢瓥鐣ヤ笌涓婁笅鏂囬绠?
-| 闃舵 | 妫€绱?| 娉ㄥ叆閲?| 澶囨敞 |
+## 7. 检索策略与上下文预算
+
+| 阶段 | 检索 | 注入量 | 备注 |
 |---|---|---|---|
-| 瑙勫垝 | top-6 鈫?鍘嬫垚 5 鏉¤鐐?| 鈮?.5k tokens | 鍙窇涓€娆?|
-| 浼氳瘖锛堟瘡 crop锛?| 涓嶆绱紝澶嶇敤瑙勫垝闃舵鐨?*鍒ゆ嵁鍗?*锛屾寜鍊嶇巼鍒囨 | 鈮?00 tokens | 姣?run 鍙畻涓€娆★紝闅?crop 澶嶇敤 |
-| 浠茶 | top-8锛堥棶棰?涓撳缁撹鍏抽敭璇嶏級 | 鈮?k tokens | 鍙窇涓€娆?|
+| 规划 | top-6 → 压成 5 条要点 | ≤1.5k tokens | 只跑一次 |
+| 会诊（每 crop） | 不检索，复用规划阶段的**判据卡**，按倍率切段 | ≤200 tokens | 每 run 只算一次，随 crop 复用 |
+| 仲裁 | top-8（问题+专家结论关键词） | ≤3k tokens | 只跑一次 |
 
-- 铻嶅悎锛歊RF锛坄score = 危 1/(60+rank)`锛夛紝BM25 涓?dense 鍚勫彇 top-20銆?- 涓枃锛欱M25 闇€鍒嗚瘝锛孭0 鐢?`jieba`锛涗篃鍙厛鐢ㄣ€屽瓧绗?bigram銆嶉伩鍏嶆柊渚濊禆銆?- 缂撳瓨锛氬凡鏈?`diskcache` 渚濊禆锛宬ey = `(corpus_version, mode, stage, query_hash, k)`銆?- 鎴愭湰锛氭湰鍦版绱?鈮?涓€娆?VLM 璋冪敤锛涚湡姝ｅ閲忔槸娉ㄥ叆鐨?token锛堜及绠?+8%~15%/run锛屽彇鍐充簬 top-k锛夈€?
+- 融合：RRF（`score = Σ 1/(60+rank)`），BM25 与 dense 各取 top-20。
+- 中文：BM25 需分词，P0 用 `jieba`；也可先用「字符 bigram」避免新依赖。
+- 缓存：已有 `diskcache` 依赖，key = `(corpus_version, mode, stage, query_hash, k)`。
+- 成本：本地检索 ≪ 一次 VLM 调用；真正增量是注入的 token（估算 +8%~15%/run，取决于 top-k）。
+
 ---
 
-## 8. 鍒嗛樁娈靛疄鏂?
-**P0锛?鈥? 澶╋紝鍙珛鍗抽獙璇佷环鍊硷級**
-- 鎵嬪伐绛栧睍 30鈥?0 鏉＄粨鐩磋偁鐥呯悊璇枡锛圵HO 浜氬瀷鍒ゆ嵁銆丆SCO/NCCN 瑕佺偣銆佸父瑙侀壌鍒偣锛夛紝鑻辨枃+涓枃瀵圭収銆?- BM25 + jieba锛宍KnowledgeService.retrieve()` 鎵撻€氥€?- 鎺?鈶犫憿鈶ｏ細瑙勫垝闃舵娉ㄥ叆銆佷徊瑁佹敞鍏?+ 寮曠敤鏍￠獙锛沗--rag/--no-rag` 寮€鍏炽€?- 杞ㄨ抗钀?`rag_evidence`锛沗giant knowledge build|status`銆?
-**P1锛堢害 1 鍛級**
-- MedCPT dense + RRF 铻嶅悎锛涘垽鎹崱鍘嬬缉閫昏緫锛汯G YAML锛堜簹鍨嬪眰绾?+ 閴村埆瀵癸級涓庨偦灞呮墿灞曘€?- 鎺?鈶★紙姣?crop 鍒ゆ嵁鍗★級锛涘紩鐢ㄦ牎楠屾寚鏍囧寲銆?
-**P2锛堝钩鍙板寲锛?*
-- C-RAG锛氬巻鍙插垏鐗?杞ㄨ抗寤虹储寮曪紙PLIP 鍥惧悜閲忔垨杞ㄨ抗鎽樿鍚戦噺锛夛紝鐩镐技鐥呬緥 few-shot + 涓€鑷存€ф牎楠屻€?- 杩介棶鑺傜偣锛堝€?SNOWTEAM 鐨?follow-up 鑼冨紡锛夛細闂淇℃伅涓嶈冻鏃惰緭鍑恒€屽緟琛ュ厖涓村簥淇℃伅銆嶃€?- 涓?`refactor/langgraph-orchestration-v1` 瀵归綈锛歊AG 浣滀负涓€涓嫭绔嬭妭鐐规敞鍏ワ紝涓嶆敼 State 濂戠害銆?
+## 8. 分阶段实施
+
+**P0（1–2 天，可立即验证价值）**
+- 手工策展 30–80 条结直肠病理语料（WHO 亚型判据、CSCO/NCCN 要点、常见鉴别点），英文+中文对照。
+- BM25 + jieba，`KnowledgeService.retrieve()` 打通。
+- 接 ①③④：规划阶段注入、仲裁注入 + 引用校验；`--rag/--no-rag` 开关。
+- 轨迹落 `rag_evidence`；`giant knowledge build|status`。
+
+**P1（约 1 周）**
+- MedCPT dense + RRF 融合；判据卡压缩逻辑；KG YAML（亚型层级 + 鉴别对）与邻居扩展。
+- 接 ②（每 crop 判据卡）；引用校验指标化。
+
+**P2（平台化）**
+- C-RAG：历史切片/轨迹建索引（PLIP 图向量或轨迹摘要向量），相似病例 few-shot + 一致性校验。
+- 追问节点（借 SNOWTEAM 的 follow-up 范式）：问题信息不足时输出「待补充临床信息」。
+- 与 `refactor/langgraph-orchestration-v1` 对齐：RAG 作为一个独立节点注入，不改 State 契约。
+
 ---
 
-## 9. 璇勬祴涓庡洖褰?
-1. **閰嶅瀵圭収**锛氬悓涓€鎵瑰垏鐗囪窇 `--rag` / `--no-rag`锛屾瘮杈?answer銆乤greement銆乧ost銆乴atency銆?2. **寮曠敤蹇犲疄搴?*锛氫徊瑁佽緭鍑洪噷姣忔潯鏂█鑳藉惁鏄犲皠鍒?`[E#]`锛涙棤鍑哄姣斾緥浣滀负鏍稿績鎸囨爣锛堢洰鏍?<10%锛夈€?3. **妫€绱㈣川閲?*锛氫汉宸ユ爣娉?20 棰?脳 top-6 鍛戒腑鐜囷紙P@3銆丮RR锛夈€?4. **鍥炲綊**锛氶粯璁?`RAG_ENABLED=false`锛宍ObservationPlan`/`Turn` 鏂板瓧娈靛甫榛樿鍊硷紝纭繚 langgraph 鍒嗘敮鐨?parity 娴嬭瘯涓嶅彈褰卞搷銆?
+## 9. 评测与回归
+
+1. **配对对照**：同一批切片跑 `--rag` / `--no-rag`，比较 answer、agreement、cost、latency。
+2. **引用忠实度**：仲裁输出里每条断言能否映射到 `[E#]`；无出处比例作为核心指标（目标 <10%）。
+3. **检索质量**：人工标注 20 题 × top-6 命中率（P@3、MRR）。
+4. **回归**：默认 `RAG_ENABLED=false`，`ObservationPlan`/`Turn` 新字段带默认值，确保 langgraph 分支的 parity 测试不受影响。
+
 ---
 
-## 10. 鍚堣涓庤鍙?
-| 璧勪骇 | 璁稿彲 | 缁撹 |
+## 10. 合规与许可
+
+| 资产 | 许可 | 结论 |
 |---|---|---|
-| SNOWTEAM2023/MedRAG 浠ｇ爜 | CC BY-NC 4.0锛?*绂佸晢鐢?*锛?| 鍙€熸€濊矾锛屼唬鐮佷笌鎻愮ず璇嶅叏閮ㄩ噸鍐?|
-| MedRAG Toolkit 璇枡 | 浠ｇ爜寮€婧愶紱Textbooks 婧愯嚜 MedQA锛堝師涔︾増鏉冿級銆丼tatPearls 涓?CC BY-NC-ND銆乄ikipedia CC BY-SA銆丳ubMed 鎽樿鍙?NLM 鏉℃ | 鐮旂┒鍙敤锛涘晢鐢ㄥ繀椤绘浛鎹负鎺堟潈璇枡 |
-| 鎺ㄨ崘鑷缓璇枡 | WHO 娑堝寲绯荤粺鑲跨槫鍒嗙被锛堟巿鏉冨壇鏈級銆丆SCO/NCCN 鎸囧崡锛堟巿鏉冿級銆侀櫌鍐呰劚鏁忕梾鐞嗘姤鍛?| 鍟嗙敤鍞竴骞插噣璺緞 |
-| 鎮ｈ€呮暟鎹紙C-RAG锛?| 鈥?| 鍒囩墖涓庢姤鍛婇渶鑴辨晱銆佽闂帶鍒躲€佸璁℃棩蹇?|
+| SNOWTEAM2023/MedRAG 代码 | CC BY-NC 4.0（**禁商用**） | 只借思路，代码与提示词全部重写 |
+| MedRAG Toolkit 语料 | 代码开源；Textbooks 源自 MedQA（原书版权）、StatPearls 为 CC BY-NC-ND、Wikipedia CC BY-SA、PubMed 摘要受 NLM 条款 | 研究可用；商用必须替换为授权语料 |
+| 推荐自建语料 | WHO 消化系统肿瘤分类（授权副本）、CSCO/NCCN 指南（授权）、院内脱敏病理报告 | 商用唯一干净路径 |
+| 患者数据（C-RAG） | — | 切片与报告需脱敏、访问控制、审计日志 |
 
 ---
 
-## 11. 椋庨櫓娓呭崟
+## 11. 风险清单
 
-| 椋庨櫓 | 褰卞搷 | 缂撹В |
+| 风险 | 影响 | 缓解 |
 |---|---|---|
-| 妫€绱㈠櫔澹版薄鏌撲徊瑁?| 寮曞叆閿欒缁撹 | `RAG_MIN_SCORE` 闃堝€?+ 寮曠敤鏍￠獙 + 榛樿鍏抽棴 |
-| Patho-R1 涓婁笅鏂囪鎾戠垎锛堟湰鍦?7B锛宍max_tokens=256`锛?| 杈撳嚭閫€鍖?| 鍒ゆ嵁鍗＄‖鎬?鈮?00 tokens锛岃秴闀挎埅鏂?|
-| 璇枡鐗堟湰婕傜Щ | 缁撹涓嶅彲澶嶇幇 | `corpus_version` 鍐欏叆杞ㄨ抗 |
-| 涓?langgraph 鍒嗘敮鍐茬獊 | 鍚堝苟鍥伴毦 | RAG 鍋氭垚娉ㄥ叆渚濊禆锛屼笉鏀?State 濂戠害 |
-| 鍟嗙敤璁稿彲 | 娉曞姟闃绘柇 | 璇枡璧拌嚜寤?鎺堟潈璺嚎锛堣 搂10锛?|
+| 检索噪声污染仲裁 | 引入错误结论 | `RAG_MIN_SCORE` 阈值 + 引用校验 + 默认关闭 |
+| Patho-R1 上下文被撑爆（本地 7B，`max_tokens=256`） | 输出退化 | 判据卡硬性 ≤200 tokens，超长截断 |
+| 语料版本漂移 | 结论不可复现 | `corpus_version` 写入轨迹 |
+| 与 langgraph 分支冲突 | 合并困难 | RAG 做成注入依赖，不改 State 契约 |
+| 商用许可 | 法务阻断 | 语料走自建/授权路线（见 §10） |
 
 ---
 
-## 12. P0 瀹炵幇鐘舵€侊紙宸插畬鎴愶級
+## 12. P0 实现状态（已完成）
 
-### 12.1 鏂板鏂囦欢
+### 12.1 新增文件
 
-| 鏂囦欢 | 浣滅敤 |
+| 文件 | 作用 |
 |---|---|
-| `src/giant/knowledge/schemas.py` | `Passage` / `EvidenceBundle` / `KnowledgeStats`锛坒rozen pydantic锛?|
-| `src/giant/knowledge/tokenize.py` | 杞婚噺鍒嗚瘝锛氳嫳鏂囧皬鍐?鍘诲仠鐢ㄨ瘝+鏋佺畝璇嶅共锛涗腑鏂囨寜瀛楃浜屽厓缁?|
-| `src/giant/knowledge/lexicon.py` | 涓啋鑻辩梾鐞嗘湳璇〃锛堢害 120 鏉★級锛屼腑鏂囬棶棰?鈫?鑻辨枃妫€绱㈣瘝锛岀绾垮彲澶嶇幇 |
-| `src/giant/knowledge/bm25.py` | 鑷寘鍚?Okapi BM25 鍊掓帓绱㈠紩锛堟棤绗笁鏂逛緷璧栵級 |
-| `src/giant/knowledge/corpus.py` | 鍘诲櫔锛堣瘝绮樿繛妫€娴嬶級銆佸彞瀛愮骇婊戠獥鍒囧垎銆佽鏂欐寚绾?|
-| `src/giant/knowledge/selection.py` | 鎸?`id_range` / `regex` / 鍏ㄩ噺鐨勮婧愰€夋嫨瑙勫垯 |
-| `src/giant/knowledge/cards.py` | 鍒ゆ嵁鍗★紙鈮?00 瀛楃锛変笌缂栧彿璇佹嵁鍧楋紙`[E1]鈥锛?|
-| `src/giant/knowledge/service.py` | `KnowledgeService` 闂ㄩ潰锛氭噿鍔犺浇銆佹绱€佺浉瀵瑰垎鏁版埅鏂?|
-| `data/corpus/sources.json` | 璇枡绛栧睍瑙勫垯锛堝彲瀹¤銆佸彲澶嶇幇锛?|
-| `data/corpus/curated_colorectal.jsonl` | 14 鏉′汉宸ュ垽鎹崱锛堜簹鍨?鍒嗙骇/鍒嗘湡/鍒囩紭/LVI/PNI/鍑鸿娊/MMR锛夛紝**寰呯梾鐞嗕笓瀹跺鏍?* |
-| `data/corpus/textbooks_colorectal.jsonl` | 鏋勫缓浜х墿锛?41 鐗囨 / 247k 瀛楃 / 鎸囩汗 `6b21d2539d8e`锛?|
-| `tests/test_knowledge.py` | 20 涓绾挎祴璇曪紙鍚彁绀鸿瘝娉ㄥ叆鏂█锛?|
+| `src/giant/knowledge/schemas.py` | `Passage` / `EvidenceBundle` / `KnowledgeStats`（frozen pydantic） |
+| `src/giant/knowledge/tokenize.py` | 轻量分词：英文小写+去停用词+极简词干；中文按字符二元组 |
+| `src/giant/knowledge/lexicon.py` | 中→英病理术语表（约 120 条），中文问题 → 英文检索词，离线可复现 |
+| `src/giant/knowledge/bm25.py` | 自包含 Okapi BM25 倒排索引（无第三方依赖） |
+| `src/giant/knowledge/corpus.py` | 去噪（词粘连检测）、句子级滑窗切分、语料指纹 |
+| `src/giant/knowledge/selection.py` | 按 `id_range` / `regex` / 全量的语源选择规则 |
+| `src/giant/knowledge/cards.py` | 判据卡（≤900 字符）与编号证据块（`[E1]…`） |
+| `src/giant/knowledge/service.py` | `KnowledgeService` 门面：懒加载、检索、相对分数截断 |
+| `data/corpus/sources.json` | 语料策展规则（可审计、可复现） |
+| `data/corpus/curated_colorectal.jsonl` | 14 条人工判据卡（亚型/分级/分期/切缘/LVI/PNI/出芽/MMR），**待病理专家复核** |
+| `data/corpus/textbooks_colorectal.jsonl` | 构建产物（541 片段 / 247k 字符 / 指纹 `6b21d2539d8e`） |
+| `tests/test_knowledge.py` | 20 个离线测试（含提示词注入断言） |
 
-### 12.2 鎺ュ叆鐐癸紙淇敼鐨勬枃浠讹級
+### 12.2 接入点（修改的文件）
 
-| 浣嶇疆 | 鏀瑰姩 |
+| 位置 | 改动 |
 |---|---|
-| `config.py` | 鏂板 `RAG_*` 閰嶇疆锛堥粯璁ゅ叧闂級 |
-| `cli/main.py` | 鏂板 `giant knowledge build/status/search`锛沗run` 鏂板 `--rag/--no-rag`銆乣--rag-corpus`銆乣--rag-k` |
-| `cli/runners.py` | 鎸夊紑鍏虫瀯閫?`KnowledgeService`锛屾敞鍏?`AgentConfig`锛涢绛涘墠鍏堟绱㈡湳璇?|
-| `agent/runner.py` | `AgentConfig.knowledge`锛沗_retrieve_evidence()`锛涜鍒掗樁娈垫绱㈠苟鍐欏叆杞ㄨ抗锛涗徊瑁佸墠鑱斿悎妫€绱紱姣忎釜 crop 鐨?`Turn.evidence_ids` |
-| `llm/plip_planner.py` | `plan_retrieval/plan_observation/arbitrate_patho_r1` 鎺ュ彈 `evidence`锛屾妸璇佹嵁娉ㄥ叆鎻愮ず璇?|
-| `agent/trajectory.py` | `Trajectory.rag_evidence`銆乣rag_corpus_version`锛沗Turn.evidence_ids` |
+| `config.py` | 新增 `RAG_*` 配置（默认关闭） |
+| `cli/main.py` | 新增 `giant knowledge build/status/search`；`run` 新增 `--rag/--no-rag`、`--rag-corpus`、`--rag-k` |
+| `cli/runners.py` | 按开关构造 `KnowledgeService`，注入 `AgentConfig`；预筛前先检索术语 |
+| `agent/runner.py` | `AgentConfig.knowledge`；`_retrieve_evidence()`；规划阶段检索并写入轨迹；仲裁前联合检索；每个 crop 的 `Turn.evidence_ids` |
+| `llm/plip_planner.py` | `plan_retrieval/plan_observation/arbitrate_patho_r1` 接受 `evidence`，把证据注入提示词 |
+| `agent/trajectory.py` | `Trajectory.rag_evidence`、`rag_corpus_version`；`Turn.evidence_ids` |
 
-### 12.3 鐢ㄦ硶
+### 12.3 用法
 
 ```bash
-# 1) 涓嬭浇璇枡锛堝凡涓嬭浇 3 涓簮鏂囦欢鍒?data/rag_raw/锛?#    鏉ヨ嚜 huggingface.co/MedRAG 鐨?textbooks 瀛愰泦
-# 2) 鏋勫缓
+# 1) 下载语料（已下载 3 个源文件到 data/rag_raw/）
+#    来自 huggingface.co/MedRAG 的 textbooks 子集
+# 2) 构建
 giant knowledge build
-# 3) 璇曟绱紙涓枃鍙敤锛?giant knowledge search "鑲跨槫鍑鸿娊鎬庝箞鍒嗙骇" --k 3
-# 4) 甯︾煡璇嗘绱㈣窇璇婃柇
-giant run slide.svs -q "缁勭粐瀛︿簹鍨嬫槸浠€涔堬紵" -p qwen --patho-r1 --rag
+# 3) 试检索（中文可用）
+giant knowledge search "肿瘤出芽怎么分级" --k 3
+# 4) 带知识检索跑诊断
+giant run slide.svs -q "组织学亚型是什么？" -p qwen --patho-r1 --rag
 ```
 
-### 12.4 妫€绱㈠疄娴?
-| 涓枃闂 | Top-1 鍛戒腑 | 鍒嗘暟 |
+### 12.4 检索实测
+
+| 中文问题 | Top-1 命中 | 分数 |
 |---|---|---|
-| 鍒囩紭鏄惁骞插噣锛圧0锛?| Curated锛歊0/R1 瀹氫箟 + 鐩磋偁 CRM 鈮? mm | 15.4 |
-| 鏈夋病鏈夎剦绠＄槫鏍?| Curated锛歀VI 瀹氫箟涓庨鍚庢剰涔?| 11.8 |
-| 鑲跨槫鍑鸿娊鎬庝箞鍒嗙骇 | Curated锛欱d1/Bd2/Bd3 鐑偣璁℃暟 | 23.8 |
-| 榛忔恫鑵虹檶鐨勭粍缁囧浜氬瀷鏄粈涔?| Curated锛歐HO 绗?5 鐗堜簹鍨嬫竻鍗?| 40.6 |
-| T 鍒嗘湡鐪嬫蹈娑︽繁搴﹀悧 | Schwartz锛歍 鍒嗘湡鏄穻宸寸粨杞Щ鏈€寮洪娴嬪洜瀛?| 15.2 |
+| 切缘是否干净（R0） | Curated：R0/R1 定义 + 直肠 CRM ≤1 mm | 15.4 |
+| 有没有脉管瘤栓 | Curated：LVI 定义与预后意义 | 11.8 |
+| 肿瘤出芽怎么分级 | Curated：Bd1/Bd2/Bd3 热点计数 | 23.8 |
+| 黏液腺癌的组织学亚型是什么 | Curated：WHO 第 5 版亚型清单 | 40.6 |
+| T 分期看浸润深度吗 | Schwartz：T 分期是淋巴结转移最强预测因子 | 15.2 |
 
-### 12.5 璇枡韪╁潙璁板綍锛堥噸瑕侊級
+### 12.5 语料踩坑记录（重要）
 
-1. **Robbins 鐨勬秷鍖栭亾绔犺妭鍦?PDF 鎶藉彇涓崯鍧?*锛氱害 16% 鐗囨璇嶈竟鐣屼涪澶憋紙`Rupturedovarianmucinoustumors鈥锛夛紝
-   BM25 鏃犳硶鍛戒腑銆傝繖绫荤墖娈垫寜銆岀┖鏍煎崰姣?< 8% 鎴栬瘝闀夸腑浣嶆暟 > 16銆嶅垽鎹涪寮冿紝鍏ㄤ功浠呬繚鐣欏己鐗瑰緛鍙ャ€?2. **鍏抽敭璇嶅叏灞€杩囨护涓嶅彲闈?*锛歚colon` 浼氬懡涓€岀洿鑲犳椿妫€鏌ユ穩绮夋牱鍙樸€嶃€傛敼鐢?*绔犺妭浣嶇疆瀹氫綅**鈥斺€?   缁撶洿鑲犺瘝棰戝湪鏂囨。椤哄簭涓婄殑杩炵画瀵嗛泦娈碉紙Schwartz 缁撶洿鑲犵珷鑺傜殑瀵嗗害鏄叾浠栧尯鍧楃殑 60 鍊嶏級銆?3. **涓枃娈佃惤澶╃劧鏃犵┖鏍?*锛屼笉鑳藉鐢ㄥ櫔澹板垽鎹紱涓枃鎸夊瓧绗︿簩鍏冪粍寤虹储寮曪紝閬垮厤寮曞叆鍒嗚瘝鍣ㄣ€?4. **涓嫳娣锋帓鏌ヨ鐨勮鐩栫巼闂ㄦ浼氳鏉€**锛氭敼涓恒€岀浉瀵规渶楂樺垎 25%銆嶆埅鏂紝璇█鏃犲叧銆?5. MedRAG 鐨?StatPearls / PubMed / Wikipedia 璇枡浠呮湁鍏冩暟鎹紙9.9 涓囩瘒銆?3.9M 鐗囨閲忕骇锛夛紝
-   鏈湴涓嶅彲琛岋紱P0 鍙敤 textbooks銆?
-### 12.6 宸茬煡闄愬埗 / P1 寰呭姙
+1. **Robbins 的消化道章节在 PDF 抽取中损坏**：约 16% 片段词边界丢失（`Rupturedovarianmucinoustumors…`），
+   BM25 无法命中。这类片段按「空格占比 < 8% 或词长中位数 > 16」判据丢弃，全书仅保留强特征句。
+2. **关键词全局过滤不可靠**：`colon` 会命中「直肠活检查淀粉样变」。改用**章节位置定位**——
+   结直肠词频在文档顺序上的连续密集段（Schwartz 结直肠章节的密度是其他区块的 60 倍）。
+3. **中文段落天然无空格**，不能套用噪声判据；中文按字符二元组建索引，避免引入分词器。
+4. **中英混排查询的覆盖率门槛会误杀**：改为「相对最高分 25%」截断，语言无关。
+5. MedRAG 的 StatPearls / PubMed / Wikipedia 语料仅有元数据（9.9 万篇、23.9M 片段量级），
+   本地不可行；P0 只用 textbooks。
 
-- 鍙仛 **BM25 璇嶆硶妫€绱?*锛沝ense锛圡edCPT锛? RRF 铻嶅悎鏈疄鐜般€?- **鈶?姣?crop 鍒ゆ嵁鍗℃湭鎺?*锛氬垽鎹崱宸茶兘鐢熸垚锛屼絾灏氭湭閫?crop 娉ㄥ叆 Patho-R1锛堥绠椾笌寤惰繜闇€瀹炴祴锛夈€?- 寮曠敤鏍￠獙鍙湁鎻愮ず璇嶇害鏉燂紝灏氭棤銆屾棤鍑哄鏂█銆嶇殑鑷姩鍓旈櫎涓庢寚鏍囩粺璁°€?- 璇枡浠?Schwartz 澶栫绔犺妭涓轰富锛?*缁勭粐瀛︽弿杩板亸钖?*锛汸1 搴旇ˉ WHO 鍒嗙被鍘熸枃鎴栨巿鏉冩寚鍗椼€?- 14 鏉?curated 鍒ゆ嵁闇€鐥呯悊鍖荤敓澶嶆牳鍚庢柟鍙綔涓轰复搴婁緷鎹€?- 绔埌绔紙鍚湡瀹?LLM 璋冪敤锛夋湭楠岃瘉锛氭湰鏈烘棤 DashScope Key銆佹棤 Patho-R1 鏈嶅姟銆佹湭瑁?torch/PLIP銆?
-### 12.7 楠岃瘉璁板綍
+### 12.6 已知限制 / P1 待办
+
+- 只做 **BM25 词法检索**；dense（MedCPT）+ RRF 融合未实现。
+- **② 每 crop 判据卡未接**：判据卡已能生成，但尚未逐 crop 注入 Patho-R1（预算与延迟需实测）。
+- 引用校验只有提示词约束，尚无「无出处断言」的自动剔除与指标统计。
+- 语料以 Schwartz 外科章节为主，**组织学描述偏薄**；P1 应补 WHO 分类原文或授权指南。
+- 14 条 curated 判据需病理医生复核后方可作为临床依据。
+- 端到端（含真实 LLM 调用）未验证：本机无 DashScope Key、无 Patho-R1 服务、未装 torch/PLIP。
+
+### 12.7 验证记录
 
 ```
 $ python -m pytest tests/test_knowledge.py -q
@@ -220,67 +300,155 @@ $ python -m pytest tests/test_knowledge.py -q
 
 $ python -m compileall -q src/giant          # exit 0
 $ python -m giant.cli.main knowledge status
-鐗囨: 541 / 瀛楃: 247348 / 鎸囩汗: 6b21d2539d8e
-璇簮: Curated_CRC_Criteria, Pathology_Robbins, Pathoma_Husain, Surgery_Schwartz
+片段: 541 / 字符: 247348 / 指纹: 6b21d2539d8e
+语源: Curated_CRC_Criteria, Pathology_Robbins, Pathoma_Husain, Surgery_Schwartz
 ```
 
-楠岃瘉鐢ㄧ幆澧冿細`<repo>/.venv`锛圥ython 3.12.7锛岃 pydantic/pytest/typer/pydantic-settings/
+验证用环境：`D:\Pathovoyage_backend\.venv`（Python 3.12.7，装 pydantic/pytest/typer/pydantic-settings/
 structlog/rich/aiolimiter/tenacity/openai/anthropic/httpx/pillow/numpy/opencv-python-headless/scipy/
-diskcache/scikit-image/openslide-python/openslide-bin锛夛紝杩愯闇€ `PYTHONPATH=src`銆?
+diskcache/scikit-image/openslide-python/openslide-bin），运行需 `PYTHONPATH=src`。
+
 ---
 
-## 13. P0.5锛氭绱㈤椄闂?+ 缁撴瀯鍖栦徊瑁侊紙鏋舵瀯涓庤鏂欏潎鏈敼鍔級
+## 13. P0.5：检索闸门 + 结构化仲裁（架构与语料均未改动）
 
-鐩爣鏄湪**涓嶅姩涓诲惊鐜粨鏋勩€佷笉鎹㈣鏂?*鐨勫墠鎻愪笅锛屾彁鍗囦袱浠朵簨锛氬噯纭巼锛堜笉娉ㄥ叆閿欑煡璇嗭級涓?鍙В閲婃€э紙缁撹鍙粺璁°€佸彲杩芥函锛夈€?
-### 13.1 鏂板/鏀瑰姩
+目标是在**不动主循环结构、不换语料**的前提下，提升两件事：准确率（不注入错知识）与
+可解释性（结论可统计、可追溯）。
 
-| 鏂囦欢 | 鏀瑰姩 |
+### 13.1 新增/改动
+
+| 文件 | 改动 |
 |---|---|
-| `knowledge/gate.py`锛堟柊锛?| 纭畾鎬ф绱㈤椄闂細闂閿氱偣瑕嗙洊 + **璇枡鍩熻寖鍥?*鍒ゅ畾锛涗笉璋冪敤 LLM锛岄浂鎴愭湰銆佸彲澶嶇幇 |
+| `knowledge/gate.py`（新） | 确定性检索闸门：问题锚点覆盖 + **语料域范围**判定；不调用 LLM，零成本、可复现 |
 | `knowledge/schemas.py` | `CitationReport` / `WeightedEvidence` / `ArbitrationResult` |
-| `knowledge/cards.py` | `citation_check()`锛氱粺璁?`[E#]` 鐨?used / unused / invalid / coverage |
-| `llm/plip_planner.py` | `arbitrate_structured()`锛氳姹?JSON 杈撳嚭骞惰В鏋愶紱澶辫触閫€鍖栦负绾枃鏈紱`arbitrate_patho_r1` 淇濈暀涓哄吋瀹瑰寘瑁?|
-| `agent/runner.py` | `_retrieve_evidence()` 妫€绱㈠悗杩囬椄闂ㄥ苟璁板綍鍒ゅ畾锛涗徊瑁佹敼鐢ㄧ粨鏋勫寲缁撴灉锛涜建杩规柊澧?`rag_gate` / `final_citation` |
-| `agent/trajectory.py` | 鏂板 `rag_gate: list[dict]`銆乣final_citation: dict | None` |
+| `knowledge/cards.py` | `citation_check()`：统计 `[E#]` 的 used / unused / invalid / coverage |
+| `llm/plip_planner.py` | `arbitrate_structured()`：要求 JSON 输出并解析；失败退化为纯文本；`arbitrate_patho_r1` 保留为兼容包装 |
+| `agent/runner.py` | `_retrieve_evidence()` 检索后过闸门并记录判定；仲裁改用结构化结果；轨迹新增 `rag_gate` / `final_citation` |
+| `agent/trajectory.py` | 新增 `rag_gate: list[dict]`、`final_citation: dict | None` |
 
-### 13.2 闂搁棬鐨勫疄娴嬭涓猴紙鐪熷疄璇枡锛?41 鐗囨锛?
-| 闂 | 鍒ゅ畾 | 鎷︽埅鍘熷洜 | 娉ㄥ叆鏉℃暟 |
+### 13.2 闸门的实测行为（真实语料，541 片段）
+
+| 问题 | 判定 | 拦截原因 | 注入条数 |
 |---|---|---|---|
-| 缁勭粐瀛︿簹鍨嬫槸浠€涔堬紵 | relevant | 閿氱偣瑕嗙洊 5 | 3/6 |
-| 鑲跨槫鍑鸿娊鎬庝箞鍒嗙骇 | relevant | 閿氱偣瑕嗙洊 6 | 5/6 |
-| 鍒囩紭鏄惁骞插噣锛圧0锛?| relevant | 閿氱偣瑕嗙洊 3 | 6/6 |
-| 缁撶洿鑲犵檶鑲濊浆绉荤殑鍒囩紭瑕佹眰 | relevant | 鍚粨鐩磋偁锛屾斁琛?| 6/6 |
-| 鑲鸿吅鐧岀殑 EGFR 绐佸彉鐜囨槸澶氬皯锛?| **irrelevant** | `out_of_scope_organ=鑲篳 | 0 |
-| 涔宠吅鐧岀殑鍒嗗瓙鍒嗗瀷鏈夊摢浜涳紵 | **irrelevant** | `out_of_scope_organ=涔宠吅` | 0 |
-| 鑳冪檶鐨?Lauren 鍒嗗瀷 | **irrelevant** | `out_of_scope_organ=鑳僠 | 0 |
+| 组织学亚型是什么？ | relevant | 锚点覆盖 5 | 3/6 |
+| 肿瘤出芽怎么分级 | relevant | 锚点覆盖 6 | 5/6 |
+| 切缘是否干净（R0） | relevant | 锚点覆盖 3 | 6/6 |
+| 结直肠癌肝转移的切缘要求 | relevant | 含结直肠，放行 | 6/6 |
+| 肺腺癌的 EGFR 突变率是多少？ | **irrelevant** | `out_of_scope_organ=肺` | 0 |
+| 乳腺癌的分子分型有哪些？ | **irrelevant** | `out_of_scope_organ=乳腺` | 0 |
+| 胃癌的 Lauren 分型 | **irrelevant** | `out_of_scope_organ=胃` | 0 |
 
-鍏抽敭鏁欒锛?*鍙潬璇嶉潰瑕嗙洊鎸′笉浣忚法鍣ㄥ畼鍣０**鈥斺€斻€岃偤鑵虹檶鐨勭粍缁囧浜氬瀷銆嶅拰
-銆岀粨鐩磋偁鑵虹檶鐨勭粍缁囧浜氬瀷銆嶅叡浜?adenocarcinoma / histology / subtype 涓変釜閿氱偣銆?蹇呴』鍙犲姞璇枡鍩熻寖鍥村垽瀹氾紙璇枡鏄粨鐩磋偁涓撶敤鐨勶紝杩欎竴鐐瑰啓鍦?`sources.json` 閲岋級銆?
-### 13.3 缁撴瀯鍖栦徊瑁佺殑瀛楁
+关键教训：**只靠词面覆盖挡不住跨器官噪声**——「肺腺癌的组织学亚型」和
+「结直肠腺癌的组织学亚型」共享 adenocarcinoma / histology / subtype 三个锚点。
+必须叠加语料域范围判定（语料是结直肠专用的，这一点写在 `sources.json` 里）。
+
+### 13.3 结构化仲裁的字段
 
 ```json
 {
-  "answer": "娴告鼎鎬ч粡娑茶吅鐧?,
-  "weighted_evidence": [{"region": "(70000,65000,12000,12000)", "opinion": "榛忔恫婀?50%",
-                         "weight": 0.8, "why": "浣庡€?楂樺€嶅叡 3 涓尯鍩熶竴鑷?}],
-  "conflicts": ["鍖哄煙 A 鍒ら珮鍒嗗寲锛屽尯鍩?B 鍒ら粡娑茶吅鐧岋紙鑲跨槫寮傝川鎬э級"],
-  "minority": ["鍖哄煙 A 鐨勯珮鍒嗗寲缁撹"],
+  "answer": "浸润性黏液腺癌",
+  "weighted_evidence": [{"region": "(70000,65000,12000,12000)", "opinion": "黏液湖>50%",
+                         "weight": 0.8, "why": "低倍+高倍共 3 个区域一致"}],
+  "conflicts": ["区域 A 判高分化，区域 B 判黏液腺癌（肿瘤异质性）"],
+  "minority": ["区域 A 的高分化结论"],
   "citations": ["E1", "E2"]
 }
 ```
 
-瑙ｆ瀽澶辫触鏃惰嚜鍔ㄩ€€鍖栦负銆屽師鏂囧嵆绛旀銆嶏紙`structured=false`锛夛紝涓嶉樆鏂祦绋嬶紱
-`citations` 鍙帴鍙?`E\\d+` 褰㈠紡锛岄潪娉曠紪鍙疯涓㈠純骞惰鍏?`invalid`銆?
-### 13.4 寮曠敤缁熻锛堝彲瑙ｉ噴鎬х殑閲忓寲鍙ｅ緞锛?
+解析失败时自动退化为「原文即答案」（`structured=false`），不阻断流程；
+`citations` 只接受 `E\\d+` 形式，非法编号被丢弃并计入 `invalid`。
+
+### 13.4 引用统计（可解释性的量化口径）
+
 ```
-answer: 娴告鼎鎬ч粡娑茶吅鐧岋紙渚濇嵁 [E1] 鐨勪簹鍨嬫竻鍗曚笌 [E2] 鐨勫垎绾ф爣鍑嗭級
-鈫?used=[E1,E2]  unused=[E3,E4,E5,E6]  invalid=[]  coverage=0.333
+answer: 浸润性黏液腺癌（依据 [E1] 的亚型清单与 [E2] 的分级标准）
+→ used=[E1,E2]  unused=[E3,E4,E5,E6]  invalid=[]  coverage=0.333
 ```
 
-`coverage` 涓?`invalid` 鏄袱涓彲鐩存帴杩涜瘎娴嬭〃鐨勬寚鏍囷細鍓嶈€呰　閲忋€岃瘉鎹鐢ㄨ捣鏉ユ病鏈夈€嶏紝
-鍚庤€呮槸**骞昏缂栧彿**淇″彿锛堝紩鐢ㄤ簡涓嶅瓨鍦ㄧ殑 E9锛夈€?
-### 13.5 灏氭湭鍋氾紙闇€瑕佺湡瀹?API 鎵嶈兘楠岃瘉锛?
-- SED 绗?1 姝ワ紙閫愭潯鐙珛璇勪及 agree/uncertain/disagree锛夊皻鏈帴鍏ワ紱
-- 缁撴瀯鍖?JSON 杈撳嚭鐨?*瀹為檯鎴愬姛鐜?*鏈煡鈥斺€旂绾垮彧鏈夎В鏋愬櫒鐨勫崟鍏冩祴璇曪紱
-- 璇佹嵁鍏呭垎鎬у畧鍗紙answer 鍓嶆鏌ュ尯鍩?鍊嶆暟锛変粛鏄彁绀鸿瘝绾︽潫锛屾湭鍙樻垚浠ｇ爜锛?- `--runs` 鐨勫 rollout 浠嶅彧鐢ㄤ簬瀛楃涓叉姇绁紝鏈仛绛栫暐钂搁銆?
+`coverage` 与 `invalid` 是两个可直接进评测表的指标：前者衡量「证据被用起来没有」，
+后者是**幻觉编号**信号（引用了不存在的 E9）。
+
+### 13.5 尚未做（需要真实 API 才能验证）
+
+- SED 第 1 步（逐条独立评估 agree/uncertain/disagree）尚未接入；
+- 结构化 JSON 输出的**实际成功率**未知——离线只有解析器的单元测试；
+- 证据充分性守卫（answer 前检查区域/倍数）仍是提示词约束，未变成代码；
+- `--runs` 的多 rollout 仍只用于字符串投票，未做策略蒸馏。
+
+---
+
+## 14. P1：一次检索、四路复用（RAG 的最优接法）
+
+### 14.1 设计
+
+原来 RAG 只影响两个提示词位置（观察计划、仲裁），PLIP 那条路只是把证据塞进「翻译成
+英文检索文本」的提示词里，属于间接且不可控。改为**一次检索 → 同一份已过闸门的证据服务四个消费者**：
+
+| 消费者 | 用法 | 注入量 |
+|---|---|---|
+| ① PLIP 查询 | 判据卡英文短语 → 术语表 → 最后兜底（全确定性） | 1–3 个维度文本 |
+| ② 观察计划 | `plan_observation` 的参考判据（判据卡） | ≤900 字符 |
+| ③ 逐 crop 专家会诊 | 按倍率档位切片的判据，逐 crop 注入 Patho-R1 | ≤220 字符/次 |
+| ④ 仲裁 | 编号证据块 + 强制引用 | ≤2400 字符 |
+
+四个消费者共享同一个 `EvidenceBundle` 与同一个闸门判定，因此**注入与不注入是同一个决策**，
+不会出现「PLIP 用了噪声证据、仲裁却拦下了」这种不一致。
+
+### 14.2 本轮修复的四个缺陷
+
+| # | 缺陷 | 修法 |
+|---|---|---|
+| 1 | 预筛路径（`cli/runners.py`）绕过闸门，域外问题仍注入 | 预筛前调用 `gate.apply()`，被拦则 `planning_evidence=None` |
+| 2 | PLIP 兜底是所有问题共用一句 `colorectal adenocarcinoma tumor epithelium, H&E` | 新增 `knowledge/plip_query.py`：判据卡英文短语（需 ≥2 个锚点命中）→ 术语表词 → 最后兜底 |
+| 3 | 预筛与规划各检索一次相同问题 | `KnowledgeService` 增加进程内缓存（`query, stage, k`），两边拿到同一份结果 |
+| 4 | 判据卡只在启动时整张注入一次 | `cards.criteria_slice()` 按倍率档位切 ≤220 字符，逐 crop 注入（判据卡优先于教科书句子） |
+
+### 14.3 实测：PLIP 检索文本从「一句打天下」变成「跟着问题走」
+
+真实语料（541 片段）+ 闸门：
+
+| 问题 | 来源 | PLIP 检索文本 |
+|---|---|---|
+| 有没有脉管瘤栓 | curated | `lymphovascular invasion` |
+| 切缘是否干净（R0） | lexicon | `surgical margin resection` |
+| 肿瘤出芽怎么分级 | curated | `tumor budding` |
+| 组织学亚型是什么？ | lexicon | `histology histologic \| subtype classification` |
+| 浸润深度到哪一层 | lexicon | `depth of invasion` |
+| 高分化与低分化腺癌的区别 | curated | `well differentiated` |
+| 家族性腺瘤性息肉病的癌变风险 | lexicon | `adenoma \| polyp \| carcinoma` |
+
+改动前以上七个问题拿到的是**同一句**兜底文本。两个已修复的错配（回归测试已锁）：
+
+- 「浸润深度」曾被错配成 `perineural invasion`（只共享 invasion 一个词）→ 现在要求 ≥2 个锚点命中；
+- 「切缘」的术语表文本曾重复 `margin` → 现在词级去重。
+
+### 14.4 逐 crop 判据（③）的实测切片
+
+| 问题 | low | medium | high |
+|---|---|---|---|
+| 有没有脉管瘤栓 | LVI 定义（207 字符） | 同（207） | LVI 定义 + 预后意义（199） |
+| 肿瘤出芽怎么分级 | 出芽 Bd1–Bd3（175） | 同组另一条（169） | 报告要素（167） |
+| 浸润深度到哪一层 | 报告要素（172） | 同（172） | T 分期定义（172） |
+
+切片一律来自策展判据卡（人工核对的标准），「该倍率看什么」仍由随 crop 传入的
+`observation_task` 负责，两者不重复。
+
+### 14.5 验证
+
+```
+$ python -m pytest tests -q
+54 passed in 2.75s        # 新增 test_plip_query.py 11 个用例
+$ python -m compileall -q src/giant scripts
+exit 0
+```
+
+### 14.6 仍然无法验证的部分
+
+- **PLIP 候选框是否更准**：SlideBench 只有切片级标签、无病灶框 → 算不了 recall@K；
+  需 CAMELYON mask 或院内 `.geojson` 才能度量。
+- **逐 crop 判据是否提升专家结论质量**：需要真实 DashScope Key + Patho-R1 服务；
+  离线只能验证「注入内容正确、预算内」。
+- 主模型（`qwen-vl-max`）本身的可用性待验证——它是上一代模型 ID，见 §BENCHMARK 的环境说明。
+
+
 

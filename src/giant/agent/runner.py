@@ -296,6 +296,9 @@ class GIANTAgent:
 
     _gate_log: list[dict] = field(init=False, default_factory=list, repr=False)
 
+    # 规划阶段检索到的（已过闸门的）证据，供逐 crop 的判据切片复用。
+    _planning_bundle: Any | None = field(init=False, default=None, repr=False)
+
 
     async def run(self) -> RunResult:
         """打开切片、初始化组件、执行导航并返回完整轨迹。"""
@@ -407,6 +410,7 @@ class GIANTAgent:
                     self._context.trajectory.rag_corpus_version = (
                         planning_evidence.corpus_version
                     )
+                    self._planning_bundle = planning_evidence
                 self._context.trajectory.rag_gate = list(self._gate_log)
 
 
@@ -878,6 +882,7 @@ class GIANTAgent:
         self,
         crop_base64: str,
         observation_task: str = "",
+        criteria: str | None = None,
     ) -> str | None:
 
         if self._patho_r1_client is None:
@@ -890,7 +895,7 @@ class GIANTAgent:
                 image_bytes = base64.b64decode(crop_base64)
                 image = Image.open(BytesIO(image_bytes)).convert("RGB")
                 result = await self._patho_r1_client.consult(
-                    image, observation_task=observation_task
+                    image, observation_task=observation_task, criteria=criteria
                 )
                 break
             except Exception as e:
@@ -979,7 +984,21 @@ class GIANTAgent:
 
         mag = _magnification_bucket(region)
         task = self._observation_tasks.get(mag, "")
-        expert_opinion = await self._consult_patho_r1(cropped_base64, task)
+
+        # 逐 crop 注入判据：按当前倍率档位切一段最贴合的判据（≤220 字符），
+        # 而不是只在启动时注入一次整张判据卡。
+        criteria_hint = ""
+        if self._planning_bundle is not None:
+            try:
+                from giant.knowledge.cards import criteria_slice
+
+                criteria_hint = criteria_slice(self._planning_bundle, mag)
+            except Exception as e:  # 判据切片失败不应阻断会诊
+                logger.warning("判据切片失败，使用实例级判据: %s", e)
+
+        expert_opinion = await self._consult_patho_r1(
+            cropped_base64, task, criteria_hint or None
+        )
 
         self._context.add_turn(
             image_base64=cropped_base64,
