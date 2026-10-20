@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     ANTHROPIC_RPM: int = 60
     QWEN_RPM: int = 60
 
+    # Qwen3 系列的思考模式开关：默认关闭——思考链会污染 JSON 输出并让输出 token 翻倍。
+    QWEN_ENABLE_THINKING: bool = False
+
     # 大语言模型采样参数。
     OPENAI_TEMPERATURE: float = 0.0
     ANTHROPIC_TEMPERATURE: float = 0.0

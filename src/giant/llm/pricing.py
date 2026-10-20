@@ -46,6 +46,22 @@ PRICING_USD_PER_1K: dict[str, ModelPricing] = {
         "input": 0.0006,
         "output": 0.0017,
     },
+    # 百炼价目表（中国北京区，USD/1M tokens 折算为 /1K）：
+    # qwen3.8-max 输入 $1.65 / 输出 $4.951 per 1M → 0.00165 / 0.004951 per 1K
+    "qwen3.8-max": {
+        "input": 0.00165,
+        "output": 0.004951,
+    },
+    # qwen3.7-plus 输入 $0.276 / 输出 $1.101 per 1M
+    "qwen3.7-plus": {
+        "input": 0.000276,
+        "output": 0.001101,
+    },
+    # qwen3-vl-plus 与 qwen-vl-plus 同档，暂按后者计价（换区/调价时以官方价目表为准）
+    "qwen3-vl-plus": {
+        "input": 0.0006,
+        "output": 0.0017,
+    },
 }
 
 _APPROVED_MODELS_LIST = ", ".join(sorted(APPROVED_MODELS))

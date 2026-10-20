@@ -6,7 +6,6 @@ DEFAULT_OPENAI_MODEL: str = "gpt-5.2"
 DEFAULT_ANTHROPIC_MODEL: str = "claude-sonnet-4-5-20250929"
 DEFAULT_GOOGLE_MODEL: str = "gemini-3-pro-preview"
 DEFAULT_QWEN_MODEL: str = "qwen-vl-max"
-
 DEFAULT_MODELS_BY_PROVIDER: dict[str, str] = {
     "openai": DEFAULT_OPENAI_MODEL,
     "anthropic": DEFAULT_ANTHROPIC_MODEL,
@@ -36,6 +35,11 @@ QWEN_MODELS: frozenset[str] = frozenset(
     {
         DEFAULT_QWEN_MODEL,
         "qwen-vl-plus",
+        # 新一代文本+视觉模型：能力更强、上下文 1M，单价按百炼价目表折算更低。
+        # 注意 ID 写法是 qwen3.8-max（不是 qwen-3.8-max），写错会 404。
+        "qwen3.8-max",
+        "qwen3.7-plus",
+        "qwen3-vl-plus",
     }
 )
 

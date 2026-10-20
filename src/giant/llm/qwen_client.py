@@ -62,6 +62,23 @@ def _strip_markdown_fences(text: str) -> str:
     return stripped
 
 
+def _trim_to_json(text: str) -> str:
+    """把 JSON 之前的散文/思考链剥掉，返回从第一个 `{` 开始的文本。
+
+    Qwen3 系列在 thinking 模式下会在 JSON 前输出分析段落；模型的
+    ``response_format=json_object`` 并不能保证绝对没有前缀，所以解析前统一裁剪。
+    """
+    start = text.find("{")
+    return text[start:] if start > 0 else text
+
+
+def _extra_body(model: str, *, enable_thinking: bool) -> dict[str, object]:
+    """Qwen3 系列支持思考模式开关；更早的模型不接受该参数，按模型前缀决定是否下发。"""
+    if model.strip().lower().startswith("qwen3"):
+        return {"enable_thinking": enable_thinking}
+    return {}
+
+
 def _parse_qwen_step_response(
     *,
     output_text: str | None,
@@ -77,7 +94,7 @@ def _parse_qwen_step_response(
             usage=token_usage,
         )
 
-    text = _strip_markdown_fences(output_text)
+    text = _trim_to_json(_strip_markdown_fences(output_text))
 
     try:
 
@@ -199,6 +216,10 @@ class QwenProvider:
                     ],
                     temperature=self.settings.QWEN_TEMPERATURE,
                     max_tokens=max_tokens,
+                    extra_body=_extra_body(
+                        self.model,
+                        enable_thinking=self.settings.QWEN_ENABLE_THINKING,
+                    ),
                 )
             content = response.choices[0].message.content if response.choices else None
             if content is None or not content.strip():
@@ -265,6 +286,10 @@ class QwenProvider:
                     temperature=self.settings.QWEN_TEMPERATURE,
                     max_tokens=4096,
                     response_format={"type": "json_object"},
+                    extra_body=_extra_body(
+                        self.model,
+                        enable_thinking=self.settings.QWEN_ENABLE_THINKING,
+                    ),
                 )
 
             latency_ms = (time.perf_counter() - start_time) * 1000
